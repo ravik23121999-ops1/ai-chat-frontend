@@ -4,27 +4,25 @@ import { useState, useCallback, useEffect } from 'react';
 import { GoogleAuth } from '../components/GoogleAuth';
 import { Chat } from '../components/Chat';
 import { Payment } from '../components/Payment';
+import type { User } from '../types/user';
 
 export default function Home() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isPremium, setIsPremium] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('chatUser');
     const savedPremium = localStorage.getItem('isPremium');
-    
+
     if (savedUser) {
       try {
         setUser(JSON.parse(savedUser));
-        setShowWelcome(false);
         if (savedPremium === 'true') {
           setIsPremium(true);
         }
-      } catch (error) {
-        console.error('Failed to parse saved user data:', error);
+      } catch {
         localStorage.removeItem('chatUser');
       }
     }
@@ -43,9 +41,8 @@ export default function Home() {
     localStorage.setItem('isPremium', String(isPremium));
   }, [isPremium]);
 
-  const handleLoginSuccess = useCallback((userData: any) => {
+  const handleLoginSuccess = useCallback((userData: User) => {
     setUser(userData);
-    setShowWelcome(false);
   }, []);
 
   const handlePaymentSuccess = useCallback(() => {
@@ -55,7 +52,6 @@ export default function Home() {
   const handleLogout = useCallback(() => {
     setUser(null);
     setIsPremium(false);
-    setShowWelcome(true);
     setShowSidebar(false);
     localStorage.removeItem('chatUser');
     localStorage.removeItem('isPremium');
@@ -84,10 +80,10 @@ export default function Home() {
                 Sign in to start chatting with AI-powered features
               </p>
             </div>
-            
+
             <div className="space-y-4">
               <GoogleAuth onLoginSuccess={handleLoginSuccess} />
-              
+
               <div className="pt-4 border-t border-gray-100">
                 <div className="flex items-center justify-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500 flex-wrap">
                   <span>✨ Fast Responses</span>
@@ -105,6 +101,7 @@ export default function Home() {
           <button
             onClick={() => setShowSidebar(!showSidebar)}
             className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-lg hover:bg-gray-50 transition-colors"
+            aria-label={showSidebar ? 'Close menu' : 'Open menu'}
           >
             <svg className="w-6 h-6 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {showSidebar ? (
@@ -131,17 +128,17 @@ export default function Home() {
               </h2>
               <p className="text-sm text-gray-500">Start chatting with AI</p>
             </div>
-            
+
             <Payment user={user} onPaymentSuccess={handlePaymentSuccess} />
-            
+
             <button
               onClick={handleLogout}
               className="mt-6 w-full py-3 text-sm font-medium text-red-600 bg-red-50 rounded-xl hover:bg-red-100 transition-colors duration-200"
             >
-              Sign Out
+              Sign out
             </button>
           </div>
-          
+
           <div className="flex-1 min-w-0">
             <Chat user={user} isPremium={isPremium} />
           </div>

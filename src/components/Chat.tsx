@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { socketService } from '../lib/socket';
+import type { User } from '../types/user';
 
 interface Message {
   id: string;
@@ -12,11 +13,11 @@ interface Message {
 }
 
 interface ChatProps {
-  user: any;
+  user: User;
   isPremium: boolean;
 }
 
-export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
+export function Chat({ user, isPremium }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [suggestion, setSuggestion] = useState('');
@@ -24,21 +25,22 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summary, setSummary] = useState('');
+  const [actionError, setActionError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const lastSavedMessagesRef = useRef<string>('');
+  const lastSavedMessagesRef = useRef('');
 
   useEffect(() => {
     setMessages([]);
     lastSavedMessagesRef.current = '';
-    
+
     const savedMessages = localStorage.getItem(`chatHistory_${user.id}`);
     if (savedMessages) {
       try {
         const parsedMessages = JSON.parse(savedMessages);
         setMessages(parsedMessages);
         lastSavedMessagesRef.current = savedMessages;
-      } catch (error) {
-        console.error('Failed to parse saved messages:', error);
+      } catch {
+        localStorage.removeItem(`chatHistory_${user.id}`);
       }
     }
   }, [user.id]);
@@ -49,16 +51,15 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
       localStorage.setItem(`chatHistory_${user.id}`, messagesString);
       lastSavedMessagesRef.current = messagesString;
     }
-  }, [messages]);
+  }, [messages, user.id]);
 
   useEffect(() => {
     let mounted = true;
     let hasJoinedRoom = false;
     const socket = socketService.connect();
-    
+
     const joinRoom = () => {
       if (mounted && !hasJoinedRoom && socket.connected) {
-        console.log('Joining room:', user.id);
         socket.emit('join-room', user.id);
         hasJoinedRoom = true;
       }
@@ -67,10 +68,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
     if (socket.connected) {
       joinRoom();
     } else {
-      socket.once('connect', () => {
-        console.log('Connected to server');
-        joinRoom();
-      });
+      socket.once('connect', joinRoom);
     }
 
     const handleMessage = (message: Message) => {
@@ -79,35 +77,11 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
       }
     };
 
-    const handleUserJoined = (data: { userId: string }) => {
-      if (mounted) {
-        console.log('User joined:', data.userId);
-      }
-    };
-
-    const handleUserLeft = (data: { userId: string }) => {
-      if (mounted) {
-        console.log('User left:', data.userId);
-      }
-    };
-
-    const handlePaymentSuccess = (data: { userId: string }) => {
-      if (mounted) {
-        console.log('Payment success for user:', data.userId);
-      }
-    };
-
     socket.on('receive-message', handleMessage);
-    socket.on('user-joined', handleUserJoined);
-    socket.on('user-left', handleUserLeft);
-    socket.on('payment-success', handlePaymentSuccess);
 
     return () => {
       mounted = false;
       socket.off('receive-message', handleMessage);
-      socket.off('user-joined', handleUserJoined);
-      socket.off('user-left', handleUserLeft);
-      socket.off('payment-success', handlePaymentSuccess);
       socket.off('connect');
     };
   }, [user.id]);
@@ -128,7 +102,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -139,8 +113,9 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
     if (messages.length === 0) return;
 
     setLoadingSuggestion(true);
+    setActionError('');
     try {
-      const chatHistory = messages.map(m => `${m.username}: ${m.message}`);
+      const chatHistory = messages.map((m) => `${m.username}: ${m.message}`);
       const lastMessage = messages[messages.length - 1].message;
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat/suggest-reply`, {
@@ -157,9 +132,11 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
       const data = await response.json();
       if (data.success) {
         setSuggestion(data.suggestion);
+      } else {
+        setActionError(data.error || 'Could not suggest a reply. Please try again.');
       }
-    } catch (error) {
-      console.error('Failed to get suggestion:', error);
+    } catch {
+      setActionError('Could not suggest a reply. Please try again.');
     } finally {
       setLoadingSuggestion(false);
     }
@@ -174,8 +151,9 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
     if (messages.length === 0) return;
 
     setLoadingSummary(true);
+    setActionError('');
     try {
-      const chatHistory = messages.map(m => `${m.username}: ${m.message}`);
+      const chatHistory = messages.map((m) => `${m.username}: ${m.message}`);
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat/summarize`, {
         method: 'POST',
@@ -191,9 +169,11 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
       if (data.success) {
         setSummary(data.summary);
         setShowSummary(true);
+      } else {
+        setActionError(data.error || 'Could not summarize the chat. Please try again.');
       }
-    } catch (error) {
-      console.error('Failed to summarize chat:', error);
+    } catch {
+      setActionError('Could not summarize the chat. Please try again.');
     } finally {
       setLoadingSummary(false);
     }
@@ -214,7 +194,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
               <span className="text-xl sm:text-2xl">💬</span>
               <span className="truncate">Real-Time Chat</span>
             </h2>
-            <p className="text-xs sm:text-sm text-gray-500 truncate">Logged in as: {user.name}</p>
+            <p className="text-xs sm:text-sm text-gray-500 truncate">Signed in as {user.name}</p>
           </div>
           <div className="flex items-center gap-2">
             {messages.length > 0 && (
@@ -228,8 +208,8 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
             )}
             {isPremium && (
               <span className="px-2 sm:px-4 py-1 sm:py-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white rounded-full text-xs sm:text-sm font-medium shadow-md animate-pulse flex-shrink-0">
-                <span className="hidden sm:inline">⭐ Premium User</span>
-                <span className="sm:inline">⭐</span>
+                <span className="hidden sm:inline">⭐ Premium</span>
+                <span className="sm:hidden">⭐</span>
               </span>
             )}
           </div>
@@ -244,7 +224,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
             <p className="text-sm text-center">Start the conversation!</p>
           </div>
         )}
-        
+
         {messages.map((msg, index) => (
           <div
             key={msg.id}
@@ -266,11 +246,16 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
             </div>
           </div>
         ))}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Suggestion Banner */}
+      {actionError && (
+        <div className="mx-3 sm:mx-4 mb-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs sm:text-sm text-red-700">
+          {actionError}
+        </div>
+      )}
+
       {suggestion && (
         <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border-l-4 border-purple-500 p-3 sm:p-4 mx-3 sm:mx-4 mb-3 sm:mb-4 rounded-lg shadow-md animate-slide-up">
           <div className="flex items-start gap-2 sm:gap-3">
@@ -285,7 +270,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
               onClick={useSuggestion}
               className="flex-1 px-3 sm:px-4 py-2 bg-purple-500 text-white rounded-lg text-xs sm:text-sm hover:bg-purple-600 transition-colors duration-200 flex items-center justify-center gap-1"
             >
-              <span>✓</span> <span className="hidden sm:inline">Use Suggestion</span>
+              <span>✓</span> <span className="hidden sm:inline">Use suggestion</span>
               <span className="sm:hidden">Use</span>
             </button>
             <button
@@ -298,17 +283,17 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
         </div>
       )}
 
-      {/* Summary Modal */}
       {showSummary && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-4 sm:p-6 animate-scale-up">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg sm:text-xl font-bold text-gray-800 flex items-center gap-2">
-                <span>📝</span> Chat Summary
+                <span>📝</span> Chat summary
               </h3>
               <button
                 onClick={() => setShowSummary(false)}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close summary"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -326,17 +311,14 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
         </div>
       )}
 
-      {/* Input Area */}
       <div className="bg-white p-3 sm:p-4 border-t border-gray-100 shadow-lg">
         <div className="flex gap-2 sm:gap-3">
           <div className="flex-1 relative">
             <input
               type="text"
               value={inputMessage}
-              onChange={(e) => {
-                setInputMessage(e.target.value);
-              }}
-              onKeyPress={handleKeyPress}
+              onChange={(e) => setInputMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="Type your message..."
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-800 placeholder-gray-400"
             />
@@ -344,6 +326,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
               <button
                 onClick={() => setInputMessage('')}
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Clear message"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -362,7 +345,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
             </svg>
           </button>
         </div>
-        
+
         {isPremium && (
           <div className="flex gap-2 mt-3">
             <button
@@ -378,7 +361,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
               ) : (
                 <>
                   <span>💡</span>
-                  <span className="hidden sm:inline">Suggest Reply</span>
+                  <span className="hidden sm:inline">Suggest reply</span>
                   <span className="sm:hidden">Suggest</span>
                 </>
               )}
@@ -396,7 +379,7 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
               ) : (
                 <>
                   <span>📝</span>
-                  <span className="hidden sm:inline">Summarize Chat</span>
+                  <span className="hidden sm:inline">Summarize chat</span>
                   <span className="sm:hidden">Summarize</span>
                 </>
               )}
@@ -406,4 +389,4 @@ export const Chat: React.FC<ChatProps> = ({ user, isPremium }) => {
       </div>
     </div>
   );
-};
+}
